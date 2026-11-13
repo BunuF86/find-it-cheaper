@@ -1,0 +1,14 @@
+interface:
+  display_name: מצא לי כזה בזול
+  short_description: חיפוש מוצרים והשוואת מחירים בין חנויות ברשת
+  default_prompt: השתמש ב־$find-it-cheaper כדי למצוא את המוצר שבתמונה או בקישור בכמה
+    חנויות ובכמה מחירים.
+  icon_small: assets/icon.svg
+  icon_large: assets/icon.svg
+policy:
+  products:
+  - chatgpt
+  - codex
+  - api
+  - atlas
+  allow_implicit_invocation: true
