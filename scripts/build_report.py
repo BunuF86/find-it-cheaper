@@ -33,6 +33,7 @@ INPUT_TYPES = ("image", "link", "text", "barcode")
 REJECT_REASONS = ("blocked", "different_product", "out_of_stock", "used", "conditional_price", "duplicate",
                   "no_shipping", "not_a_shop", "other")
 MAX_OFFERS = 12
+WINDOW_TITLE_TAIL = "מצא לי כזה בזול"  # the report's <title> ends with this; used to raise its window
 MAX_IMAGE_BYTES = 3 * 1024 * 1024
 IMAGE_MAGIC = (
     (b"\xff\xd8\xff", "image/jpeg"),
@@ -262,15 +263,44 @@ def embed_json(data):
     return text
 
 
+def _windows_app_window(path):
+    """Windows: open the report in its own Chrome/Edge window and pull it to the front.
+
+    A plain "open file" only adds a tab to a browser that may sit behind other windows,
+    so the user never sees the report arrive.
+    """
+    roots = [os.environ.get(v) for v in ("PROGRAMFILES", "PROGRAMFILES(X86)", "LOCALAPPDATA")]
+    exes = [os.path.join(r, *parts) for parts in (("Google", "Chrome", "Application", "chrome.exe"),
+                                                  ("Microsoft", "Edge", "Application", "msedge.exe"))
+            for r in roots if r]
+    exe = next((e for e in exes if os.path.isfile(e)), None)
+    if not exe:
+        return False
+    subprocess.Popen([exe, "--new-window", "--start-maximized", "--app=" + Path(path).as_uri()],
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    # Windows refuses focus changes from background processes; a synthetic Alt press lifts that lock.
+    script = ("Start-Sleep -Milliseconds 1200; $w = New-Object -ComObject WScript.Shell; "
+              "$w.SendKeys('%'); $null = $w.AppActivate('" + WINDOW_TITLE_TAIL + "')")
+    try:
+        encoded = base64.b64encode(script.encode("utf-16-le")).decode()
+        subprocess.Popen(["powershell", "-NoProfile", "-WindowStyle", "Hidden", "-EncodedCommand", encoded],
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except Exception:
+        pass  # the window is open even if it could not be raised
+    return True
+
+
 def open_in_browser(path):
-    """Open the finished report in the user's default browser. Returns True only if a launcher was started."""
+    """Put the finished report on the user's screen. Returns True only if a launcher was started."""
     path = str(Path(path).resolve())
     try:
         if sys.platform.startswith("win"):
+            if _windows_app_window(path):
+                return True
             os.startfile(path)  # noqa: S606 - opening the user's own report
             return True
         if sys.platform == "darwin":
-            subprocess.run(["open", path], check=True, timeout=15)
+            subprocess.run(["open", path], check=True, timeout=15)  # `open` also activates the browser
             return True
         if "microsoft" in platform.release().lower():  # WSL: hand the file to Windows
             win = subprocess.run(["wslpath", "-w", path], capture_output=True, text=True, timeout=10).stdout.strip()
@@ -297,12 +327,20 @@ def utf8_console():
 def main():
     utf8_console()
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("report", type=Path, help="report.json produced after verification")
+    ap.add_argument("report", type=Path, help="report.json produced after verification (with --open: the built .html)")
+    ap.add_argument("--open", action="store_true", help="only open an already built report.html on the user's screen")
     ap.add_argument("-o", "--output", type=Path, help="output HTML (default: next to the JSON)")
     ap.add_argument("--no-fetch", action="store_true", help="do not download remote images; keep them as links")
     ap.add_argument("--check", action="store_true", help="validate only, write nothing")
     ap.add_argument("--no-open", action="store_true", help="do not open the report in the browser when it is built")
     args = ap.parse_args()
+
+    if args.open:
+        if not args.report.is_file():
+            sys.exit(f"no such file: {args.report}")
+        opened = open_in_browser(args.report)
+        print(("OPENED on the user's screen: " if opened else "NOT OPENED automatically. Ask the user to open this file: ") + str(args.report.resolve()))
+        return
 
     try:
         data = json.loads(args.report.read_text(encoding="utf-8"))
@@ -339,7 +377,7 @@ def main():
     if args.no_open:
         return
     if open_in_browser(out):
-        print(f"OPENED in the default browser: {out.resolve()}")
+        print(f"OPENED on the user's screen: {out.resolve()}")
     else:
         print(f"NOT OPENED automatically. Ask the user to open this file: {out.resolve()}")
 

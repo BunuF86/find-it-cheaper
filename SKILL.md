@@ -7,13 +7,23 @@ description: Search the live web for any consumer product from a photo, screensh
 
 Deliver a useful shopping comparison, not search instructions. Use the host assistant's available live search and page-reading tools. No dedicated API key is required by this skill; access and costs depend on the host. Do not pretend this is an autonomous search service or promise exhaustive coverage. Follow the host's policies for restricted goods and browsing.
 
+## Say almost nothing
+
+The user gets the result in the report that opens on their screen, not in the chat. Treat the chat as a status line.
+
+- First message, once: one short Hebrew line, for example "מחפש ומכין לך את הדוח. זה לוקח כמה דקות."
+- While working: write nothing. No narration between tool calls, no interim findings, no names of products or shops, no "now checking…". Not in English either.
+- Last message: one line. "הדוח מוכן ונפתח אצלך על המסך." if the build script printed `OPENED`; otherwise "הדוח מוכן. פתחו את הקובץ: <full path>".
+- Never put results in the chat when a report was built: no prices, no table, no recommendation, no list of what was or was not found, no caveats. All of that goes into the report (`summary`, `offers`, `notes`).
+- The only other things you may write: one clarifying question at the start when the product cannot be identified without it, and a short plain explanation when no report could be built at all.
+
 ## Start with the product
 
 - Accept a photo, screenshot, link, name, model, barcode, or description. If nothing was supplied, ask only for one of those inputs.
 - Inspect the image or read the linked page before searching. Extract brand, full model, size/capacity, color, pack quantity, condition, and any stated requirements. Do not invent unreadable labels or identify an exact model from appearance alone.
-- Default to delivery in Israel, new products, prices in ILS, Israeli stores first. State these assumptions briefly; adapt to user location/preferences. Include overseas shops when relevant and delivery to Israel can be checked. Do not ask for street address; ask city/postcode only if needed for shipping.
+- Default to delivery in Israel, new products, prices in ILS, Israeli stores first. Record these assumptions in `query.assumptions` rather than stating them in chat; adapt to user location/preferences. Include overseas shops when relevant and delivery to Israel can be checked. Do not ask for street address; ask city/postcode only if needed for shipping.
 - Ask at most one focused question if a missing detail changes compatibility or product identity (shoe size, appliance model, connector, etc.). Otherwise search immediately, marking unknowns.
-- When the request is a category with a budget ("אוזניות אלחוטיות למחשב עד 500") rather than one product, first shortlist two or three concrete models that fit and say in one line why, then compare shops for each of them. In the report these are `similar` offers of the request, each with its model in the title and what sets it apart in `differences`.
+- When the request is a category with a budget ("אוזניות אלחוטיות למחשב עד 500") rather than one product, first shortlist two or three concrete models that fit, then compare shops for each of them. In the report these are `similar` offers of the request, each with its model in the title and what sets it apart in `differences`.
 - Preserve the requested scope: an exact-model request prioritizes exact offers. A style/photo request can include similar alternatives, visibly labeled. Never silently substitute a different capacity or model.
 
 ## Search, inspect, refine
@@ -27,11 +37,13 @@ Deliver a useful shopping comparison, not search instructions. Use the host assi
 7. Rank exact offers with known delivered totals by total. Keep unknown shipping or import fees visibly separate; never label them cheapest overall. Rank similar alternatives separately by price and useful differences. Do not equate cheapest with most reliable or best quality.
 8. If pages are blocked, outdated, or inaccessible, label the offer unverified and keep it out of the verified winner. Explain the concrete gap; do not claim the product is absent from the market.
 
-## Present a useful result
+## Wording rules, and the chat answer when no report can be built
+
+These rules govern the report's `summary` and `notes`. They become a chat answer only when the report could not be built.
 
 Lead with the product understood and a concise finding. Say “הזול ביותר שמצאתי ואימתתי” only when supported, never “הכי זול ברשת”. If delivery totals are unknown, say “מחיר המוצר הנמוך ביותר שאומת; משלוח טרם אומת”.
 
-Show a compact table:
+When answering in chat instead of a report, show a compact table:
 
 | מוצר / דגם | חנות | התאמה | מחיר מוצר | משלוח / סה״כ | זמינות והבדלים | קישור |
 
@@ -55,8 +67,10 @@ After verification, also deliver the result as a designed, clickable report: the
 
 1. Write `report.json` following references/report-schema.md, from the verified evidence of this run only. Save the user's photo and reference it as `product.image`; use each retailer's own product image URL for the offers.
 2. Run `python3 scripts/build_report.py report.json -o <product-slug>.html`. On Windows, if `python3` is not found use `python` or `py`. It validates the data and writes one self-contained HTML file from assets/report-template.html. If it rejects the report, correct the data (for example drop `top_pick`, set shipping to `unknown`); never edit the script or template to get past a check.
-3. The build script opens the report in the user's default browser by itself and prints `OPENED …` or `NOT OPENED …` with the full path. Say "הדוח נפתח בדפדפן" only if it printed `OPENED`. If it printed `NOT OPENED`, give the user the full path as a clickable link and tell them to open it. Never claim the report opened without that line. In a chat app with no local browser, pass `--no-open` and present the HTML as an artifact / preview or a file. Do not change the template's design or wording per run.
-4. In chat, keep it to a few lines: the finding, the best choice with its link, the one unknown that matters most, and that the report is open. No table and no second list when the report was delivered; the report carries the detail. Keep the table only when the report could not be built. While working, write progress notes in Hebrew.
+3. The build script puts the report on the user's screen by itself (a dedicated browser window, brought to the front where the system allows) and prints `OPENED …` or `NOT OPENED …` with the full path. Never claim it opened without the `OPENED` line.
+4. If it printed `NOT OPENED`, the host is probably sandboxed (Codex and similar). Opening the user's own report is the point of the task, so request approval to run this one command outside the sandbox and run it: `python3 scripts/build_report.py --open <report.html>`. Only if that is refused or fails too, give the full path.
+5. In a chat app with no local browser, pass `--no-open` and present the HTML as an artifact / preview or a file.
+6. Finish with the single closing line from "Say almost nothing". Do not change the template's design or wording per run.
 
 The report is a snapshot of this search. It contains no live search, and it is not a website: never describe it as one. If nothing was verified, build it anyway with `offers: []` only if the user would benefit from the summary; otherwise answer in chat. If no live browsing was available, do not build a report at all.
 
