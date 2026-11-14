@@ -15,7 +15,7 @@ The interactive report is `assets/report-template.html` filled with one JSON obj
 | `query.assumptions` | no | Short Hebrew chips, e.g. `["משלוח לישראל", "מוצר חדש"]` |
 | `product.title` | yes | The product as understood |
 | `product.subtitle`, `product.tags` | no | Category / brand line; 2–4 short attribute tags. Say `גודל לא ידוע` rather than guessing |
-| `product.image` | no | The user's photo: local file path (relative to the JSON) or `https` URL. `null` if none |
+| `product.image` | yes | The user's photo when they sent one (local file path relative to the JSON). Otherwise a clean picture of the product from a shop or the manufacturer (`https` URL). It is the centre of the opening animation |
 | `product.image_alt` | no | Hebrew alt text |
 | `product.insight` | no | One sentence on what matters most for the match |
 | `summary.headline`, `summary.text` | no | The finding, plain Hebrew. Same wording rules as the chat answer |
@@ -34,7 +34,7 @@ The interactive report is `assets/report-template.html` filled with one JSON obj
 | `title` | yes | Product name in Hebrew (keep model names in Latin letters) |
 | `spec` | no | Size / brand / variant line |
 | `url` | yes | The real `http(s)` product page you opened. No tracking or affiliate parameters |
-| `image` | no | Product image from the retailer page: `https` URL or local file. Never a generated image |
+| `image` | yes | Product image from the retailer page (`og:image` or the main gallery picture): `https` URL or local file. Never a generated image. The builder downloads it into the report and refuses to build when a `similar` offer has no picture that loads; for `exact` offers it falls back to another shop's picture of the same product |
 | `match_type` | yes | `exact` \| `similar` \| `unconfirmed` (verification.md, "Honest result states") |
 | `match_reason` | yes | Why it got that match type |
 | `differences` | for `similar` | What differs from the user's product |

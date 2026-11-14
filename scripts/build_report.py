@@ -33,6 +33,8 @@ INPUT_TYPES = ("image", "link", "text", "barcode")
 REJECT_REASONS = ("blocked", "different_product", "out_of_stock", "used", "conditional_price", "duplicate",
                   "no_shipping", "not_a_shop", "other")
 MAX_OFFERS = 12
+BROWSER_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+              "(KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36")
 WINDOW_TITLE_TAIL = "מצא לי כזה בזול"  # the report's <title> ends with this; used to raise its window
 MAX_IMAGE_BYTES = 3 * 1024 * 1024
 IMAGE_MAGIC = (
@@ -224,7 +226,7 @@ def to_data_uri(data, source):
     return f"data:{mime};base64,{base64.b64encode(data).decode()}"
 
 
-def embed_image(value, base_dir, fetch, warnings):
+def embed_image(value, base_dir, fetch, warnings, referer=None):
     """Local path or https URL -> data URI. A failed download keeps the URL; a bad value becomes None."""
     if not isinstance(value, str) or not value.strip():
         return None
@@ -238,7 +240,10 @@ def embed_image(value, base_dir, fetch, warnings):
         try:
             if not host_is_public(parts.hostname or ""):
                 raise ValueError("host is not public")
-            req = urllib.request.Request(value, headers={"User-Agent": "Mozilla/5.0 (find-it-cheaper report)"})
+            headers = {"User-Agent": BROWSER_UA, "Accept": "image/avif,image/webp,image/png,image/jpeg,*/*;q=0.8"}
+            if referer:  # many shops only serve product images to requests coming from their own pages
+                headers["Referer"] = referer
+            req = urllib.request.Request(value, headers=headers)
             with urllib.request.urlopen(req, timeout=15) as resp:
                 return to_data_uri(resp.read(MAX_IMAGE_BYTES + 1), value)
         except Exception as exc:  # network, size, or type problem: the template shows a placeholder if it 404s
@@ -263,6 +268,27 @@ def embed_json(data):
     return text
 
 
+APP_FLAGS = ["--new-window", "--start-maximized", "--no-first-run", "--no-default-browser-check",
+             "--autoplay-policy=no-user-gesture-required"]
+
+
+def _profile_dir():
+    """A browser profile of our own: a separate process, so the window and autoplay flags really apply."""
+    root = os.environ.get("LOCALAPPDATA") or os.path.join(os.path.expanduser("~"), ".cache")
+    path = os.path.join(root, "find-it-cheaper", "browser")
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+def _mac_app_window(path):
+    for app in ("Google Chrome", "Microsoft Edge"):
+        if os.path.isdir(f"/Applications/{app}.app"):
+            subprocess.run(["open", "-na", app, "--args", *APP_FLAGS, "--user-data-dir=" + _profile_dir(),
+                            "--app=" + Path(path).as_uri()], check=True, timeout=15)
+            return True
+    return False
+
+
 def _windows_app_window(path):
     """Windows: open the report in its own Chrome/Edge window and pull it to the front.
 
@@ -276,7 +302,7 @@ def _windows_app_window(path):
     exe = next((e for e in exes if os.path.isfile(e)), None)
     if not exe:
         return False
-    subprocess.Popen([exe, "--new-window", "--start-maximized", "--app=" + Path(path).as_uri()],
+    subprocess.Popen([exe, *APP_FLAGS, "--user-data-dir=" + _profile_dir(), "--app=" + Path(path).as_uri()],
                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     # Windows refuses focus changes from background processes; a synthetic Alt press lifts that lock.
     script = ("Start-Sleep -Milliseconds 1200; $w = New-Object -ComObject WScript.Shell; "
@@ -300,6 +326,8 @@ def open_in_browser(path):
             os.startfile(path)  # noqa: S606 - opening the user's own report
             return True
         if sys.platform == "darwin":
+            if _mac_app_window(path):
+                return True
             subprocess.run(["open", path], check=True, timeout=15)  # `open` also activates the browser
             return True
         if "microsoft" in platform.release().lower():  # WSL: hand the file to Windows
@@ -332,6 +360,7 @@ def main():
     ap.add_argument("-o", "--output", type=Path, help="output HTML (default: next to the JSON)")
     ap.add_argument("--no-fetch", action="store_true", help="do not download remote images; keep them as links")
     ap.add_argument("--check", action="store_true", help="validate only, write nothing")
+    ap.add_argument("--allow-missing-images", action="store_true", help="tests only: build even if an offer has no picture")
     ap.add_argument("--no-open", action="store_true", help="do not open the report in the browser when it is built")
     args = ap.parse_args()
 
@@ -359,12 +388,45 @@ def main():
 
     warnings = []
     base = args.report.resolve().parent
-    data["product"]["image"] = embed_image(data["product"].get("image"), base, not args.no_fetch, warnings)
+    fetch = not args.no_fetch
+    data["product"]["image"] = embed_image(data["product"].get("image"), base, fetch, warnings)
     for o in data["offers"]:
-        o["image"] = embed_image(o.get("image"), base, not args.no_fetch, warnings)
+        o["image"] = embed_image(o.get("image"), base, fetch, warnings, referer=o.get("url"))
     for r in data.get("rejected", []):  # thumbnails for the opening animation only: keep as https links, never embed
         if not (isinstance(r.get("image"), str) and r["image"].startswith("https://")):
             r.pop("image", None)
+
+    # No card without a picture. An image that is really inside the file beats a link that may not load.
+    def solid(img):
+        return isinstance(img, str) and (img.startswith("data:image/") or (not fetch and img.startswith("https://")))
+
+    exact_pool = [o["image"] for o in data["offers"] if o["match_type"] == "exact" and solid(o["image"])]
+    product_img = data["product"]["image"] if solid(data["product"]["image"]) else None
+    missing = []
+    for i, o in enumerate(data["offers"]):
+        if solid(o["image"]):
+            continue
+        # The same exact product looks the same in every shop, so another shop's picture of it is honest.
+        fallback = (exact_pool[0] if exact_pool else product_img) if o["match_type"] in ("exact", "unconfirmed") else None
+        if fallback:
+            o["image"] = fallback
+        else:
+            missing.append(f"offers[{i}] ({o['store']}: {o['title']})")
+    if not solid(data["product"]["image"]):
+        pool = exact_pool or [o["image"] for o in data["offers"] if solid(o["image"])]
+        if pool:
+            data["product"]["image"] = pool[0]
+        elif data["offers"]:
+            missing.append("product.image")
+    if missing and not args.allow_missing_images:
+        print("Report not built: every offer needs a picture that actually loads.", file=sys.stderr)
+        for m in missing:
+            print(f"  - no usable image for {m}", file=sys.stderr)
+        for w in warnings:
+            print(f"  ({w})", file=sys.stderr)
+        print("Find another image URL of that same product (the shop's og:image, another shop that sells it, "
+              "or the manufacturer's page), put it in the offer's `image`, and build again.", file=sys.stderr)
+        sys.exit(1)
 
     template = TEMPLATE.read_text(encoding="utf-8")
     if template.count(PLACEHOLDER) != 1:
