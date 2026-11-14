@@ -209,8 +209,9 @@ def check(url):
         return result
     text = raw.decode(charset, errors="replace")
     result.update(parse(final, text))
-    if final != url:
+    if final != url:  # e.g. a comparison-site link that redirects to the shop: report the shop
         result["final_url"] = final
+        result["store_host"] = (urllib.parse.urlsplit(final).hostname or host).removeprefix("www.")
     if result["price"] is not None:
         result["status"] = "ok"
     elif result["http"] == 202 or len(text) < 1500:
@@ -223,6 +224,11 @@ def check(url):
 
 
 def main():
+    for stream in (sys.stdout, sys.stderr):  # Windows consoles garble Hebrew without this
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("urls", nargs="+", help="product page URLs, or one text file with a URL per line")
     ap.add_argument("-o", "--output", help="write JSON here (default: stdout)")

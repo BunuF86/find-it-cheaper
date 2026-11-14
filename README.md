@@ -42,24 +42,20 @@
 
 ## התקנה ב-Codex
 
-```
-התקן לי את הסקיל "מצא לי כזה בזול": הורד את https://github.com/BunuF86/find-it-cheaper לתיקייה ~/.agents/skills/find-it-cheaper (עם git clone, ואם אין git הורד את קובץ ה-zip של הריפו וחלץ אותו לשם). אם סביבת העבודה חוסמת כתיבה לתיקייה הזו, בקש ממני אישור להריץ את הפקודה מחוץ לסביבת העבודה, ואל תדלג על ההתקנה המקומית. בדוק שפייתון 3 מותקן, ואם לא, הסבר לי איך להתקין. בסיום הפעל את הסקיל מהתיקייה שהתקנת ושאל אותי איזה מוצר לחפש.
-```
-
-Codex יבקש אישור לגשת לאינטרנט, בהורדה ובחיפוש. מאשרים.
-
-אם Codex כותב שהכתיבה לתיקייה נחסמה, מריצים את ההתקנה ידנית ואז פותחים את Codex מחדש.
-
-במק ובלינוקס, בטרמינל:
+Codex מגיע עם מתקין סקילים מובנה. מדביקים:
 
 ```
-git clone https://github.com/BunuF86/find-it-cheaper ~/.agents/skills/find-it-cheaper
+$skill-installer התקן את הסקיל מהריפו https://github.com/BunuF86/find-it-cheaper. הסקיל נמצא בשורש הריפו, אז השתמש ב-path נקודה ובשם find-it-cheaper (--path . --name find-it-cheaper). בסיום הפעל את הסקיל ושאל אותי איזה מוצר לחפש.
 ```
 
-בווינדוס, ב-PowerShell:
+Codex יבקש אישור לגשת לאינטרנט, בהתקנה ובחיפוש. מאשרים. אם הסקיל לא מופיע אחרי ההתקנה, פותחים את Codex מחדש.
+
+## עדכון לגרסה חדשה
+
+כותבים לסוכן:
 
 ```
-git clone https://github.com/BunuF86/find-it-cheaper "$env:USERPROFILE\.agents\skills\find-it-cheaper"
+עדכן את הסקיל find-it-cheaper לגרסה האחרונה מ-https://github.com/BunuF86/find-it-cheaper
 ```
 
 ## שימוש

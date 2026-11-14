@@ -12,8 +12,12 @@ import argparse
 import base64
 import ipaddress
 import json
+import os
+import platform
 import re
+import shutil
 import socket
+import subprocess
 import sys
 import urllib.parse
 import urllib.request
@@ -258,12 +262,46 @@ def embed_json(data):
     return text
 
 
+def open_in_browser(path):
+    """Open the finished report in the user's default browser. Returns True only if a launcher was started."""
+    path = str(Path(path).resolve())
+    try:
+        if sys.platform.startswith("win"):
+            os.startfile(path)  # noqa: S606 - opening the user's own report
+            return True
+        if sys.platform == "darwin":
+            subprocess.run(["open", path], check=True, timeout=15)
+            return True
+        if "microsoft" in platform.release().lower():  # WSL: hand the file to Windows
+            win = subprocess.run(["wslpath", "-w", path], capture_output=True, text=True, timeout=10).stdout.strip()
+            if win and shutil.which("explorer.exe"):
+                subprocess.Popen(["explorer.exe", win])
+                return True
+        if shutil.which("xdg-open") and (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")):
+            subprocess.Popen(["xdg-open", path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def utf8_console():
+    # Windows consoles default to a legacy code page and crash or garble Hebrew output.
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+
+
 def main():
+    utf8_console()
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("report", type=Path, help="report.json produced after verification")
     ap.add_argument("-o", "--output", type=Path, help="output HTML (default: next to the JSON)")
     ap.add_argument("--no-fetch", action="store_true", help="do not download remote images; keep them as links")
     ap.add_argument("--check", action="store_true", help="validate only, write nothing")
+    ap.add_argument("--no-open", action="store_true", help="do not open the report in the browser when it is built")
     args = ap.parse_args()
 
     try:
@@ -298,6 +336,12 @@ def main():
     for w in warnings:
         print(f"warning: {w}", file=sys.stderr)
     print(f"{out} ({out.stat().st_size // 1024} KB, {len(data['offers'])} offers)")
+    if args.no_open:
+        return
+    if open_in_browser(out):
+        print(f"OPENED in the default browser: {out.resolve()}")
+    else:
+        print(f"NOT OPENED automatically. Ask the user to open this file: {out.resolve()}")
 
 
 if __name__ == "__main__":
