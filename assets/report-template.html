@@ -355,6 +355,43 @@ try{saved=JSON.parse(localStorage.getItem(storeKey))||{}}catch(e){}
 function persist(){try{localStorage.setItem(storeKey,JSON.stringify(saved))}catch(e){}}
 function savedCount(){return offers.filter(function(o){return saved[o._key]}).length}
 
+// ---- main picture: never show a product that is cut off by the edge of its own photo.
+// Shops sometimes publish a cropped banner as the product image. Each candidate is drawn small and its border
+// is compared with its own background: a product that touches the border is a cropped picture.
+function borderScore(src){
+  return new Promise(function(done){
+    var im=new Image();
+    im.onload=function(){
+      try{
+        var n=48,c=document.createElement('canvas');c.width=n;c.height=n;var g=c.getContext('2d');
+        g.fillStyle='#fff';g.fillRect(0,0,n,n);g.drawImage(im,0,0,n,n);
+        var d=g.getImageData(0,0,n,n).data,px=[],i;
+        for(i=0;i<n;i++){px.push([i,0],[i,n-1],[0,i],[n-1,i])}
+        function at(p){var o=(p[1]*n+p[0])*4;return[d[o],d[o+1],d[o+2]]}
+        var bg=[[0,0],[n-1,0],[0,n-1],[n-1,n-1]].map(at).sort(function(a,b){return(b[0]+b[1]+b[2])-(a[0]+a[1]+a[2])})[1]; // a typical corner
+        var off=0;px.forEach(function(q){var v=at(q);if(Math.abs(v[0]-bg[0])+Math.abs(v[1]-bg[1])+Math.abs(v[2]-bg[2])>70)off++});
+        var ratio=im.naturalWidth/im.naturalHeight;
+        done({src:src,cut:off/px.length,odd:ratio>1.9||ratio<.5});
+      }catch(e){done({src:src,cut:.5,odd:false})}
+    };
+    im.onerror=function(){done(null)};im.src=src;
+  });
+}
+var mainImage=product.image;
+function chooseMainImage(){
+  var own=safeImg(product.image);
+  if(query.input_type==='image')return Promise.resolve();              // the user's own photo is never replaced
+  var cands=[];if(own)cands.push(own);
+  offers.forEach(function(o){var s=safeImg(o.image);if(s&&o.match_type==='exact'&&cands.indexOf(s)<0&&/^data:/.test(s))cands.push(s)});
+  if(!own||!/^data:/.test(own)){if(!own&&cands.length)mainImage=cands[0];return Promise.resolve()}
+  return Promise.all(cands.slice(0,8).map(borderScore)).then(function(r){
+    r=r.filter(Boolean);if(!r.length)return;
+    var first=r[0];if(first.src===own&&first.cut<.1&&!first.odd)return;   // the chosen picture is clean: keep it
+    r.sort(function(a,b){return(a.cut+(a.odd?1:0))-(b.cut+(b.odd?1:0))});
+    mainImage=r[0].src;
+  },function(){});
+}
+
 // ---- static parts
 // Benny's channels. A link with an empty url is simply not shown.
 var LINKS=[
@@ -391,7 +428,7 @@ function staticParts(){
   document.getElementById('lead').textContent=str(sm.headline)||str(product.subtitle);
   document.getElementById('sublead').textContent=str(sm.text);
   var alt=str(product.image_alt)||str(product.title)||'המוצר שחיפשת';
-  document.getElementById('top-media').replaceChildren(image(product.image,alt,'source-img'));
+  document.getElementById('top-media').replaceChildren(image(mainImage,alt,'source-img'));
   if(!(window.matchMedia&&matchMedia('(prefers-reduced-motion:reduce)').matches)){var top=document.querySelector('.top');top.insertBefore(clip('bg','top-bg',true),top.firstChild)}
 
   // numbers row: only what the data proves
@@ -601,7 +638,7 @@ function playIntro(){
   function anim(el,frames,ms,ease){return el.animate(frames,{duration:ms,easing:ease||'cubic-bezier(.2,.9,.25,1)',fill:'forwards'})}
   var SPRING='cubic-bezier(.3,1.5,.5,1)';
   var status=h('div',{class:'in-status','aria-live':'polite'}),cnt=h('b',{text:'0'}),counter=h('div',{class:'in-counter'},'תוצאות שנסרקו',cnt);
-  var scan=h('div',{class:'in-scan'}),src=safeImg(product.image);
+  var scan=h('div',{class:'in-scan'}),src=safeImg(mainImage);
   var photo=h('div',{class:'in-abs in-photo',style:'width:'+S+'px;height:'+S+'px'},src?h('img',{src:src,alt:''}):'⌕',scan);
   var rings=document.createElementNS('http://www.w3.org/2000/svg','svg');rings.setAttribute('class','in-rings');
   var root=h('div',{id:'intro',role:'dialog','aria-label':'הנפשת החיפוש'},rings,
@@ -732,6 +769,7 @@ if(canIntro){
   tags.insertBefore(h('button',{class:'head-btn',onclick:playIntro,text:'▶ שוב'}),tags.firstChild);
 }
 
+chooseMainImage().then(function(){
 staticParts();
 render();
 var calm=window.matchMedia&&matchMedia('(prefers-reduced-motion:reduce)').matches;
@@ -739,6 +777,7 @@ if(canIntro&&!calm&&location.hash!=='#nointro'){
   var ready=document.fonts&&document.fonts.ready?Promise.race([document.fonts.ready,new Promise(function(r){setTimeout(r,1200)})]):Promise.resolve();
   ready.then(playIntro);
 }
+});
 })();
 </script>
 </body>
